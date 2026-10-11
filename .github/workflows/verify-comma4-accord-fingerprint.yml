@@ -1,0 +1,50 @@
+name: Verify clean Honda fingerprint fork
+on:
+  push:
+    branches:
+      - comma4-verify-install-v1
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Clone exact public Comma fork
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --depth 1 --branch comma4-accord26-fingerprint-v1 https://github.com/phairo-enterprises/ph.git /tmp/accord
+          cd /tmp/accord
+          git rev-parse HEAD
+          test "$(git rev-parse HEAD)" = "543c084cdfe8025c90cd39c18e1fab21e936a7f5"
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          p=Path("openpilot/selfdrive/car/card.py")
+          text=p.read_text()
+          assert text.count('fixed_fingerprint = "HONDA_ACCORD_11G"')==1
+          ast.parse(text,p.name)
+          assert Path("launch_openpilot.sh").exists()
+          print("Fingerprint and source syntax OK")
+          PY
+      - name: Check submodules and runtime source
+        run: |
+          set -euo pipefail
+          cd /tmp/accord
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth 1 --jobs 3
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          p=Path("opendbc_repo/opendbc/car/honda/values.py")
+          assert p.exists(), "Honda opendbc definitions missing"
+          s=p.read_text()
+          assert "HONDA_ACCORD_11G =" in s
+          assert "Honda Accord 2023-26" in s
+          ast.parse(s,p.name)
+          print("PASS: Honda platform definition is present in pinned opendbc submodule")
+          PY
+      - name: Record non-hardware validation boundary
+        run: |
+          echo "Source checkout, Python syntax, and pinned Honda definitions validated."
+          echo "Not validated: Comma 4 installer binary, AGNOS boot, hardware drivers, CAN compatibility, or safe actuation."
