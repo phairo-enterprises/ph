@@ -1,0 +1,78 @@
+name: Publish custom Comma 4 installer from current official binary
+on:
+  push:
+    branches: [comma4-installer-publisher-v1]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Download official installer and patch only the source Git URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://installer.comma.ai/phairo-enterprises/comma4-accord26-fingerprint-v1'
+          curl --fail --location --silent --show-error -A AGNOSSetup --max-time 75 -o installer "$url"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, struct
+          p=Path('installer')
+          original=p.read_bytes()
+          assert original[:4]==b'\x7fELF', 'Not an ELF executable'
+          assert original[4:6]==b'\x02\x01', 'Not 64-bit little-endian ELF'
+          assert struct.unpack_from('<H',original,18)[0]==183, 'Not ARM64'
+          old=b'https://github.com/phairo-enterprises/openpilot.git?'
+          new=b'https://github.com/phairo-enterprises/ph.git?'
+          assert original.count(old)==1, 'Unexpected official binary Git URL pattern'
+          assert original.count(b'comma4-accord26-fingerprint-v1')>=1, 'Unexpected branch'
+          # Preserve the original fixed-length padded binary string.
+          replace=new+b' '*(len(old)-len(new))
+          assert len(replace)==len(old)
+          result=original.replace(old,replace)
+          assert len(result)==len(original)
+          assert result.count(b'https://github.com/phairo-enterprises/ph.git?')==1
+          assert result.count(old)==0
+          mismatch=sum(a!=b for a,b in zip(original,result))
+          assert mismatch<=len(old)
+          p.write_bytes(result)
+          print('Official bytes:',len(original))
+          print('Original SHA256:',hashlib.sha256(original).hexdigest())
+          print('Modified SHA256:',hashlib.sha256(result).hexdigest())
+          print('Changed byte positions:',mismatch)
+          print('Target repo: https://github.com/phairo-enterprises/ph.git')
+          print('Branch: comma4-accord26-fingerprint-v1')
+          PY
+          chmod 755 installer
+          file installer
+      - name: Commit installer without modifying source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f installer
+          git commit -m "Publish pinned-repository custom Comma 4 installer"
+          git push origin HEAD:comma4-installer-publisher-v1
+      - name: Verify public GitHub RAW installer has byte-perfect download
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://raw.githubusercontent.com/phairo-enterprises/ph/comma4-installer-publisher-v1/installer'
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if curl -fL -sS -A AGNOSSetup --max-time 40 "$url" -o /tmp/published-installer; then
+              if cmp -s installer /tmp/published-installer; then
+                echo "PASS: Public GitHub RAW URL returns exact ARM64 installer bytes"
+                echo "URL: $url"
+                sha256sum installer
+                exit 0
+              fi
+            fi
+            sleep 6
+          done
+          echo "FAIL: Public URL not verified" >&2
+          exit 1
