@@ -38,6 +38,9 @@ PY
 # This check is deliberately narrow. Full driving/hardware compatibility is NOT tested.
 python3 -m py_compile openpilot/selfdrive/car/card.py openpilot/selfdrive/ui/mici/layouts/main.py
 git checkout --orphan "$TARGET_BRANCH"
+# Runtime does not need upstream CI workflows. The GitHub App token cannot
+# create or change workflow files in a newly published source repository.
+rm -rf .github/workflows
 git add -A
 git -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
     -c user.name="github-actions[bot]" commit -m "MAX Honda preview: Accord fingerprint and stopped-screen behavior"
