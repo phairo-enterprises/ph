@@ -1,0 +1,42 @@
+name: Verify Comma 4 boot dependencies
+on:
+  push:
+    branches: [c4]
+    paths: [.github/workflows/check-comma4-runtime-deps.yml]
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Clone Accord branch
+        run: |
+          set -euo pipefail
+          GIT_LFS_SKIP_SMUDGE=1 git clone --quiet --filter=blob:none --depth 1 --single-branch             --branch comma4-accord26-fingerprint-v1 https://github.com/phairo-enterprises/ph.git /tmp/source
+      - name: Verify recursive submodules
+        run: |
+          set -euo pipefail
+          cd /tmp/source
+          git submodule update --init --recursive --depth 1 --jobs 5
+          test -f opendbc_repo/opendbc/car/honda/values.py
+          grep -q HONDA_ACCORD_11G opendbc_repo/opendbc/car/honda/values.py
+          echo "PASS: opendbc and all recursive submodules"
+      - name: Check critical Git LFS assets can download
+        run: |
+          set -euo pipefail
+          cd /tmp/source
+          git lfs version
+          git lfs ls-files | head -n 12 || true
+          git lfs pull --include="openpilot/common/hardware/comma/updater" --exclude=""
+          test -f openpilot/common/hardware/comma/updater
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('openpilot/common/hardware/comma/updater')
+          b=p.read_bytes()
+          print('Critical updater bytes',len(b))
+          if b.startswith(b'version https://git-lfs.github.com/spec/v1'):
+            raise SystemExit('FAIL: updater is a Git LFS pointer')
+          assert len(b)>10000, 'Updater asset is too small'
+          print('PASS: updater binary materialized')
+          PY
