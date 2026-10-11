@@ -1,0 +1,32 @@
+name: Attempt standalone installer repository
+on:
+  push:
+    branches: [comma4-repo-publish-v1]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Try to provision dedicated public openpilot repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/create-result.json -w '%{http_code}' \
+            -X POST 'https://api.github.com/user/repos' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -d '{"name":"openpilot","description":"2026 Accord fingerprint-only Comma 4 source fork","private":false}')"
+          echo "Repository creation HTTP status: $status"
+          if [[ "$status" != 201 ]]; then
+            python3 - <<'PY'
+          import json
+          o=json.load(open('/tmp/create-result.json'))
+          print('GitHub API status:', o.get('message','Unavailable'))
+          PY
+            exit 1
+          fi
+          echo "Repository was created successfully"
