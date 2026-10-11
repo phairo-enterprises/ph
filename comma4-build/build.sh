@@ -48,5 +48,7 @@ if git ls-remote --exit-code publication "refs/heads/$TARGET_BRANCH" >/dev/null 
   echo "Preview branch already exists. Refusing to overwrite it." >&2
   exit 1
 fi
-# LFS objects remain served by the original public sunnypilot GitLab LFS endpoint\n# configured in .lfsconfig; do not attempt to push those blobs with an SSH key.\nGIT_LFS_SKIP_PUSH=1 git push publication "HEAD:refs/heads/$TARGET_BRANCH"
+# LFS objects remain served by the original public sunnypilot GitLab LFS endpoint
+# configured in .lfsconfig; do not attempt to push those blobs with an SSH key.
+GIT_LFS_SKIP_PUSH=1 git push publication "HEAD:refs/heads/$TARGET_BRANCH"
 echo "Published https://github.com/${GITHUB_REPOSITORY}/tree/${TARGET_BRANCH}"
