@@ -1,0 +1,32 @@
+name: Test Accord All-Features Development Branch
+on:
+  push:
+    branches: [comma4-accord26-all-v2]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile all modified Python components
+        run: |
+          python3 -m py_compile openpilot/selfdrive/car/card.py openpilot/selfdrive/ui/mici/layouts/main.py openpilot/local_remote/controller.py openpilot/local_remote/ui_panel.py max_engine/*.py
+      - name: MAX deterministic input/replay/proof unit tests
+        run: python3 -m unittest -v max_engine.test_kernel
+      - name: Local Remote pairing/state machine unit tests
+        run: python3 -m unittest -v openpilot.local_remote.test_controller
+      - name: Check preserved fingerprint and screen fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          card=Path("openpilot/selfdrive/car/card.py").read_text()
+          assert card.count('fixed_fingerprint = "HONDA_ACCORD_11G"') == 1
+          main=Path("openpilot/selfdrive/ui/mici/layouts/main.py").read_text()
+          assert 'self._onroad_time_delay is not None and ui_state.started and not ui_state.sm["carState"].standstill' in main
+          html=Path("openpilot/local_remote/web.html").read_text()
+          assert 'Request access' in html and 'Confirm Changes' in html
+          assert 'selfdrive.controls' not in Path("openpilot/local_remote/controller.py").read_text()
+          print("PASS: fingerprint, UI guard, and isolated remote components")
+          PY
