@@ -1,10 +1,27 @@
 # MAX! Comma Four observer v0.1
-**Upstream:** mvl-boston/openpilot, branch sp-honda-dev-202608, SHA cb0f8eb4e73c79e76f2c78f03dcefc79175c84f3.
-**Vehicle:** 2026 Honda Accord EX-L Hybrid; candidate ID HONDA_ACCORD_11G.
-**Status:** standalone passive Python observer patch, NOT an installable openpilot branch.
+**Source:** mvl-boston/openpilot, branch sp-honda-dev-202608, pinned upstream SHA `cb0f8eb4e73c79e76f2c78f03dcefc79175c84f3`.
+**Vehicle:** 2026 Honda Accord EX-L Hybrid; candidate ID `HONDA_ACCORD_11G`.
+**Status:** Published standalone, passive Python observation-to-QWERTY test; **not** an installable openpilot fork.
 
-Reads prerecorded JSONL {tick,entities:[{track_id,x_m,y_m}]}; tracks are ephemeral to a recording, not proven persistent real-world identities. Quantizes to experimental 10 mm steps and labels explanatory eight-direction QWERTY outputs as inferred, not observed. Includes original input SHA-256 and deterministic replay. No mic/horn/camera/CAN connection; no control, no bypass of vehicle or driver monitoring.
+This development patch is stored under `comma4/` in the existing public `phairo-enterprises/ph` repository. A comma.ai installer of the form `installer.comma.ai/OWNER/BRANCH` expects an accessible `OWNER/openpilot` repository, which does not exist in the connected GitHub account. This branch must not be entered into the device as an installation URL.
 
-This repository is named **ph**, not **openpilot**. It cannot be installed using installer.comma.ai/phairo-enterprises/branch. To apply the patch, copy openpilot/tools/max_observer/ into the corresponding path in an actual fork of mvl-boston/openpilot. Before on-device testing, run: python3 -m unittest discover -s tests -v; then python3 openpilot/tools/max_observer/observer.py sample.jsonl.
+## What can be tested now
+From this repository's root:
 
-Next: connect permitted recorded observations read-only to the shared MAX! event schema, then validate against actual device logs. Do not equate a simulated success with autonomous driving safety.
+```sh
+cd comma4
+python3 -m unittest discover -s tests -v
+python3 openpilot/tools/max_observer/observer.py sample.jsonl -o sample_replay.json
+```
+
+The sample is synthetic JSONL with `tick` and ephemeral `track_id` positions. The observer converts successive positions into **inferred** directional QWERTY keys using a provisional 10 mm quantum. All inferences are explanatory, not evidence of actual driver inputs. Replay contains deterministic quantized displacements and input SHA-256.
+
+There is **no** live camera, CAN, horn or microphone integration, vehicle actuation, vehicle recognition patch, driver-monitoring change, or on-device result.
+
+## Installation milestone, still blocked
+1. An independently created writable `phairo-enterprises/openpilot` fork of the exact upstream branch is required.
+2. Copy the observer code into that fork's `openpilot/tools/max_observer/` directory and add the regression tests.
+3. Confirm comma four runtime compatibility, dependencies, test results and installation before representing `phairo-enterprises/BRANCH` as valid.
+4. Any later connection to vehicle telemetry is read-only, retaining stock driving safeguards.
+
+The earlier objective of a custom driving build remains separate from this safe simulation/observation cut.
