@@ -1,0 +1,21 @@
+name: Test local Wi-Fi remote isolated module
+on:
+  push:
+    branches:
+      - comma4-accord26-localremote-v1
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python sources
+        run: |
+          python3 -m py_compile openpilot/local_remote/controller.py openpilot/local_remote/ui_panel.py openpilot/local_remote/test_controller.py
+      - name: Run local pairing tests
+        run: python3 -m unittest -v openpilot.local_remote.test_controller
+      - name: Check source modification footprint
+        run: |
+          git diff --name-status comma4-accord26-fingerprint-v1 HEAD || true
