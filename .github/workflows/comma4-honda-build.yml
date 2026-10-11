@@ -1,0 +1,17 @@
+name: Assemble Honda Comma 4 source preview
+on:
+  push:
+    branches:
+      - comma4-honda-pipeline-v1
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch fixed upstream, patch, check syntax, and publish complete tree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash comma4-build/build.sh
