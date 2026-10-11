@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Comma Local Remote</title>
+<style>
+body{font:16px system-ui;background:#101820;color:#f7f7f7;max-width:500px;margin:30px auto;padding:0 20px}
+input,button{padding:12px;border-radius:9px;font:inherit;margin:6px 0}
+input{background:#22313d;border:1px solid #617080;color:white;width:calc(100% - 28px)}
+button{background:#204c82;color:white;border:1px solid #5684bd;cursor:pointer}
+button:disabled{opacity:.35;cursor:default}
+h1{font-size:22px}h2{font-size:18px}
+#codes button{min-width:95px;margin-right:8px}
+small{color:#abb8c7;display:block}
+label{display:block;margin:10px 0}
+section{border-top:1px solid #354554;padding-top:15px;margin-top:20px}
+#controls,#codes{display:none}
+</style></head><body>
+<h1>Comma Local Remote</h1>
+<p>One local session. The Comma touchscreen authorizes devices and every settings change.</p>
+<section><label for="name">Device name</label><input id="name" maxlength="32" value="Phone">
+<button id="connect">Request access</button><div id="message" role="status">Waiting</div></section>
+<section id="codes"><h2>Verification</h2><p>After the Comma touchscreen approves this device, wait 30 seconds without sending commands. Then choose the six-digit number displayed on the Comma.</p>
+<div id="choices"></div><small>Choosing the wrong number permanently blocks this browser ID until device-side unblocking.</small></section>
+<section id="controls"><h2>Settings proposals</h2>
+<label><input type="checkbox" id="debug"> Show debug information</label>
+<label><input type="checkbox" id="metric"> Use metric units</label>
+<button id="stage">Queue proposed changes</button>
+<button id="disconnect">Disconnect</button>
+<small>Changes are not applied until Confirm Changes is selected on the Comma itself.</small></section>
+<script>
+"use strict";
+const $=s=>document.getElementById(s);
+let requestId="",token="",waitId=null,choices=[];
+let device=localStorage.getItem("commaLocalRemoteId");
+if(!device || !/^[a-f0-9]{32}$/.test(device)){
+  const a=new Uint8Array(16); crypto.getRandomValues(a);
+  device=Array.from(a,x=>x.toString(16).padStart(2,"0")).join("");
+  localStorage.setItem("commaLocalRemoteId",device);
+}
+async function call(action,rest={}){
+  try{
+    const response=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
+      cache:"no-store",body:JSON.stringify({action,...rest})});
+    const data=await response.json();
+    if(data.error) $("message").textContent="Error: "+data.error;
+    return data;
+  }catch(e){$("message").textContent="Connection interrupted";return {error:"network"};}
+}
+$("connect").addEventListener("click",async()=>{
+  const data=await call("join",{device,name:$("name").value});
+  if(data.error)return;
+  requestId=data.request;choices=data.choices;
+  $("connect").disabled=true;$("codes").style.display="block";
+  $("message").textContent="Tap Confirm Device on the Comma screen";
+  $("choices").replaceChildren();
+  for(const code of choices){
+    const b=document.createElement("button");b.textContent=code;b.disabled=true;
+    b.addEventListener("click",async()=>{
+      const x=await call("prove",{request:requestId,code});
+      if(x.token){
+        token=x.token;$("codes").style.display="none";$("controls").style.display="block";
+        $("message").textContent="Connected. Settings changes require Comma approval";
+        if(waitId)clearInterval(waitId);
+      }
+    });
+    $("choices").appendChild(b);
+  }
+  waitId=setInterval(async()=>{
+    if(!requestId)return;
+    const x=await call("poll",{request:requestId});
+    const ready=x.state==="verify";
+    for(const b of $("choices").querySelectorAll("button"))b.disabled=!ready;
+    if(x.state==="no_commands")$("message").textContent="No-command verification: "+x.remaining+" seconds";
+    if(x.state==="verify")$("message").textContent="Choose the code displayed on the Comma";
+    if(x.state==="not_pending"||x.error){
+      clearInterval(waitId);waitId=null;requestId="";
+      $("codes").style.display="none";$("connect").disabled=false;
+    }
+  },1000);
+});
+$("stage").addEventListener("click",async()=>{
+  if(!token)return;
+  const a=await call("stage",{token,key:"ShowDebugInfo",value:$("debug").checked});
+  if(a.error)return;
+  const b=await call("stage",{token,key:"IsMetric",value:$("metric").checked});
+  if(!b.error)$("message").textContent="Two proposed settings queued. Confirm Changes on Comma";
+});
+$("disconnect").addEventListener("click",async()=>{
+  await call("disconnect",{token});
+  token="";$("controls").style.display="none";$("connect").disabled=false;
+  $("message").textContent="Disconnected";
+});
+</script></body></html>
