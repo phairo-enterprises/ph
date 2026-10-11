@@ -1,0 +1,28 @@
+name: Test MAX Ten Atomic Changes
+on:
+  push:
+    branches:
+      - comma4-max-top10-v1
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check edited sources
+        run: |
+          python3 -m py_compile max_engine/__init__.py max_engine/canonical.py max_engine/input.py max_engine/physics.py max_engine/proof.py max_engine/replay.py max_engine/test_kernel.py openpilot/selfdrive/ui/mici/layouts/main.py
+      - name: Determinism and proof unit tests
+        run: python3 -m unittest -v max_engine.test_kernel
+      - name: Preserve fingerprint and screen guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          car=Path('openpilot/selfdrive/car/card.py').read_text()
+          assert car.count('fixed_fingerprint = "HONDA_ACCORD_11G"') == 1
+          main=Path('openpilot/selfdrive/ui/mici/layouts/main.py').read_text()
+          assert 'self._onroad_time_delay is not None and ui_state.started and not ui_state.sm["carState"].standstill' in main
+          print("Honda fingerprint unchanged; standstill screen guard present")
+          PY
