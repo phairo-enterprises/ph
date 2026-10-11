@@ -121,7 +121,8 @@ class MiciMainLayout(Scroller):
         self._scroll_to(self._home_layout)
 
     # FIXME: these two pops can interrupt user interacting in the settings
-    if self._onroad_time_delay is not None and rl.get_time() - self._onroad_time_delay >= ONROAD_DELAY:
+    if (self._onroad_time_delay is not None and ui_state.started and not ui_state.sm["carState"].standstill
+        and rl.get_time() - self._onroad_time_delay >= ONROAD_DELAY):
       gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._onroad_layout))
       self._onroad_time_delay = None
 
