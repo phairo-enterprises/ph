@@ -1,0 +1,32 @@
+name: Probe current comma four custom installer
+on:
+  push:
+    branches: [comma4-installer-publisher-v1]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect comma installer download format
+        run: |
+          set -euo pipefail
+          URL='https://installer.comma.ai/phairo-enterprises/comma4-accord26-fingerprint-v1'
+          curl -fLsS -A 'AGNOSSetup' --max-time 60 -D /tmp/install.headers -o /tmp/install.bin "$URL"
+          echo "First header lines:"
+          head -c 2000 /tmp/install.headers | sed 's/[^[:print:]\t]/ /g'
+          echo
+          file /tmp/install.bin
+          stat -c 'Bytes: %s' /tmp/install.bin
+          sha256sum /tmp/install.bin
+          python3 - <<'PY'
+          b=open('/tmp/install.bin','rb').read()
+          checks=[b'phairo-enterprises/openpilot.git',b'phairo-enterprises/openpilot',b'openpilot.git',b'/data/openpilot',b'installer.comma.ai',b'AGNOS']
+          for s in checks:
+              print(repr(s), 'matches:',b.count(s))
+          for needle in (b'phairo-enterprises',b'openpilot.git'):
+              p=b.find(needle)
+              if p!=-1: print('Context',needle,repr(b[max(0,p-32):p+128]))
+          print('first 24 bytes', repr(b[:24]))
+          PY
