@@ -9,7 +9,7 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 def source(points):
-    return ("\\n".join(json.dumps(p, sort_keys=True) for p in points) + "\\n").encode()
+    return ("\n".join(json.dumps(p, sort_keys=True) for p in points) + "\n").encode()
 
 class ObserverTests(unittest.TestCase):
     def test_cardinals_and_diagonals(self):
