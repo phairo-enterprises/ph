@@ -26,7 +26,7 @@ class LocalRemoteTests(unittest.TestCase):
     self.remote = LocalRemote(self.path, self.clock)
     self.device = "0123456789abcdef0123456789abcdef"
     self.peer = "192.168.3.10"
-    self.remote.admin("enable", value=True)
+    self.remote.admin("enable", {"value": True})
 
   def join(self):
     return self.remote.client("join", {"device": self.device, "name": "Test Phone"}, self.peer)
@@ -42,7 +42,7 @@ class LocalRemoteTests(unittest.TestCase):
     return result["token"]
 
   def test_disabled_by_default_after_restart(self):
-    self.remote.admin("enable", value=False)
+    self.remote.admin("enable", {"value": False})
     clone = LocalRemote(self.path, self.clock)
     self.assertFalse(clone.status()["enabled"])
 
@@ -96,7 +96,7 @@ class LocalRemoteTests(unittest.TestCase):
     self.assertIn(self.device, self.remote.status()["whitelist"])
     self.remote.admin("kick")
     self.assertIsNone(self.remote.status()["active"])
-    self.remote.admin("open_mode", value=False)
+    self.remote.admin("open_mode", {"value": False})
     unknown = "f" * 32
     self.assertEqual(self.remote.client("join", {"device": unknown}, self.peer)["error"], "blocked")
     self.assertEqual(self.remote.client("join", {"device": self.device}, self.peer)["state"], "await_device_approval")
