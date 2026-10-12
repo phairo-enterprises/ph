@@ -1,4 +1,4 @@
-name: Build and verify three Comma 4 install URLs
+name: Publish and verify clean Honda Comma 4 installer
 on:
   push:
     branches: [c4]
@@ -8,112 +8,99 @@ permissions:
 jobs:
   three-installers:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Download current official AGNOS installer template
+      - name: Verify clean source snapshot
         shell: bash
         run: |
           set -euo pipefail
-          curl -fLsS --retry 3 --max-time 70 -A 'AGNOSSetup' \
-            'https://installer.comma.ai/phairo-enterprises/comma4-accord26-fingerprint-v1' \
-            -o /tmp/comma-official-installer
-          file /tmp/comma-official-installer
-          test "$(head -c 4 /tmp/comma-official-installer | od -An -tx1 | tr -d ' \n')" = "7f454c46"
-      - name: Patch both binary Git and branch strings with NUL termination
+          GIT_LFS_SKIP_SMUDGE=1 timeout 120 git clone --quiet --filter=blob:none --single-branch --depth 1 \
+            -b comma4-honda-clean-v1 https://github.com/phairo-enterprises/ph.git /tmp/clean-honda
+          test "$(git -C /tmp/clean-honda rev-parse HEAD)" = "841ca86f818a8b1e1e3b0e491dc860f10dc11e61"
+          test "$(git -C /tmp/clean-honda rev-parse 'HEAD^{tree}')" = "bec7bd69c393e47111b618a8c6281e2497ce59ad"
+          test -f /tmp/clean-honda/launch_openpilot.sh
+      - name: Derive only i0 from verified existing i1
         shell: bash
         run: |
           set -euo pipefail
+          sha256sum i1 i2 i3 > /tmp/existing-installers.sha256
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib,struct
-          original=Path('/tmp/comma-official-installer').read_bytes()
-          assert original[:6]==b'\x7fELF\x02\x01'
-          assert struct.unpack_from('<H',original,18)[0]==183,"Expected AArch64 ELF"
-          owner=b'https://github.com/phairo-enterprises/openpilot.git'
-          sourcebranch=b'comma4-accord26-fingerprint-v1'
-          profiles={'i1': b'comma4-accord26-fingerprint-v1',
-                    'i2': b'comma4-accord26-ui-v2',
-                    'i3': b'comma4-accord26-all-v2'}
-          def slot(blob,anchor):
-            assert blob.count(anchor)==1, f'Expected unique field {anchor!r}, found {blob.count(anchor)}'
-            p=blob.index(anchor)
-            q=blob.find(b'\0',p)
-            assert p<q and 0<q-p<300
-            old=blob[p:q]
-            assert old.rstrip(b'? ')==anchor, (old,anchor)
-            return p,q,old
-          urlstart,urlend,oldurl=slot(original,owner)
-          brstart,brend,oldbranch=slot(original,sourcebranch)
-          assert not (urlstart<=brstart<urlend or brstart<=urlstart<brend)
-          for filename,branch in profiles.items():
-            data=bytearray(original)
-            for start,end,value in [
-              (urlstart,urlend,b'https://github.com/phairo-enterprises/ph.git'),
-              (brstart,brend,branch)]:
-              assert len(value)<end-start
-              data[start:end]=value+b'\0'*(end-start-len(value))
-              assert bytes(data[start:start+len(value)])==value
-              assert data[start+len(value)]==0
-            out=bytes(data)
-            assert len(out)==len(original)
-            assert out[urlstart:out.find(b'\0',urlstart)]==b'https://github.com/phairo-enterprises/ph.git'
-            assert out[brstart:out.find(b'\0',brstart)]==branch
-            assert out.count(owner)==0
-            Path(filename).write_bytes(out)
-            Path(filename).chmod(0o755)
-            print(f'{filename} repo=https://github.com/phairo-enterprises/ph.git branch={branch.decode()} sha256={hashlib.sha256(out).hexdigest()} bytes={len(out)}')
-          print(f'ORIGINAL padded Git URL: {oldurl!r}')
-          print(f'ORIGINAL padded Git branch: {oldbranch!r}')
+          import hashlib, json, struct
+          original = Path('i1').read_bytes()
+          blob = hashlib.sha1(b'blob ' + str(len(original)).encode() + b'\0' + original).hexdigest()
+          assert blob == '7dee3a6c59e12048338f7335654d965cfa97eaaa', 'Existing i1 differs from reviewed artifact'
+          assert original[:6] == b'\x7fELF\x02\x01'
+          assert struct.unpack_from('<H', original, 18)[0] == 183, 'Expected AArch64 ELF'
+          repository = b'https://github.com/phairo-enterprises/ph.git'
+          old_branch = b'comma4-accord26-fingerprint-v1'
+          new_branch = b'comma4-honda-clean-v1'
+          assert original.count(repository) == 1
+          assert original.count(repository + b'\0') == 1, 'Repository must be NUL terminated'
+          assert b'https://github.com/phairo-enterprises/openpilot.git' not in original
+          assert original.count(old_branch) == 1
+          start = original.index(old_branch)
+          end = start + len(old_branch)
+          assert original[end] == 0, 'Branch must be NUL terminated'
+          assert len(new_branch) < len(old_branch)
+          result = original[:start] + new_branch + b'\0' * (len(old_branch) - len(new_branch)) + original[end:]
+          assert len(result) == len(original)
+          assert result[:start] == original[:start] and result[end:] == original[end:]
+          assert result.count(repository + b'\0') == 1
+          assert result.count(new_branch + b'\0') == 1
+          assert old_branch not in result
+          assert result[:6] == b'\x7fELF\x02\x01'
+          assert struct.unpack_from('<H', result, 18)[0] == 183
+          Path('i0').write_bytes(result)
+          Path('i0').chmod(0o755)
+          record = {
+            'artifact': 'i0',
+            'repository': repository.decode(),
+            'branch': new_branch.decode(),
+            'verified_source_commit': '841ca86f818a8b1e1e3b0e491dc860f10dc11e61',
+            'verified_source_tree': 'bec7bd69c393e47111b618a8c6281e2497ce59ad',
+            'source_i1_git_blob': blob,
+            'architecture': 'AArch64 ELF64 little-endian',
+            'bytes': len(result),
+            'sha256': hashlib.sha256(result).hexdigest(),
+            'preserved_installers': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in ('i1', 'i2', 'i3')},
+            'limitation': 'Publication-time source check; branch remains mutable. Device installation and boot not tested.'
+          }
+          Path('i0.verification.json').write_text(json.dumps(record, indent=2) + '\n')
+          print(json.dumps(record, sort_keys=True))
           PY
-          for f in i1 i2 i3; do file "$f"; done
-      - name: Verify each repository branch resolves and clones
+          sha256sum --check /tmp/existing-installers.sha256
+          file i0
+      - name: Publish only clean installer and verification record
         shell: bash
         run: |
           set -euo pipefail
-          n=0
-          for b in comma4-accord26-fingerprint-v1 comma4-accord26-ui-v2 comma4-accord26-all-v2; do
-            echo "Checking $b"
-            timeout 70 git ls-remote --exit-code https://github.com/phairo-enterprises/ph.git "refs/heads/$b"
-            GIT_LFS_SKIP_SMUDGE=1 timeout 120 git clone --quiet --filter=blob:none --single-branch --depth 1 -b "$b" https://github.com/phairo-enterprises/ph.git "/tmp/verify-$n"
-            test -f "/tmp/verify-$n/launch_openpilot.sh"
-            grep -q 'fixed_fingerprint = "HONDA_ACCORD_11G"' "/tmp/verify-$n/openpilot/selfdrive/car/card.py"
-            if ((n>=1)); then
-              grep -q 'self._onroad_time_delay is not None and ui_state.started and not ui_state.sm\["carState"\].standstill' "/tmp/verify-$n/openpilot/selfdrive/ui/mici/layouts/main.py"
-            fi
-            if ((n==2)); then
-              test -f "/tmp/verify-$n/openpilot/local_remote/controller.py"
-              test -f "/tmp/verify-$n/max_engine/replay.py"
-            fi
-            echo "PASS repo+branch $b"
-            n=$((n+1))
-          done
-      - name: Upload binaries to short c4 GitHub branch
-        shell: bash
-        run: |
-          set -euo pipefail
+          test "$(git ls-remote https://github.com/phairo-enterprises/ph.git refs/heads/comma4-honda-clean-v1 | cut -f1)" = "841ca86f818a8b1e1e3b0e491dc860f10dc11e61"
+          sha256sum --check /tmp/existing-installers.sha256
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f i1 i2 i3
-          git commit -m "Publish three individually patched ARM64 Comma 4 installers"
-          git push origin HEAD:c4
-      - name: Download-check all three final URLs
+          git add -f i0 i0.verification.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish clean Honda i0 installer; preserve i1 i2 i3"
+            git push origin HEAD:c4
+          fi
+      - name: Verify hosted clean installer returns exact bytes
         shell: bash
         run: |
           set -euo pipefail
-          for f in i1 i2 i3; do
-            url="https://raw.githubusercontent.com/phairo-enterprises/ph/c4/$f"
-            for attempt in {1..9}; do
-              curl --fail --location --silent --show-error --max-time 40 -A 'AGNOSSetup' -o "/tmp/$f.download" "$url" || true
-              if cmp -s "$f" "/tmp/$f.download"; then
+          url='https://raw.githubusercontent.com/phairo-enterprises/ph/c4/i0'
+          for attempt in {1..9}; do
+            if curl --fail --location --silent --show-error --max-time 40 -A AGNOSSetup -o /tmp/i0.download "$url"; then
+              if cmp -s i0 /tmp/i0.download; then
+                sha256sum --check /tmp/existing-installers.sha256
+                test "$(git ls-remote https://github.com/phairo-enterprises/ph.git refs/heads/comma4-honda-clean-v1 | cut -f1)" = "841ca86f818a8b1e1e3b0e491dc860f10dc11e61"
                 echo "PASS: $url"
-                sha256sum "$f"
-                break
+                sha256sum /tmp/i0.download
+                exit 0
               fi
-              if ((attempt==9)); then
-                echo "FAIL: $url" >&2
-                exit 1
-              fi
-              sleep 5
-            done
+            fi
+            sleep 5
           done
+          echo "FAIL: hosted clean installer not byte-verified" >&2
+          exit 1
