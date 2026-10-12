@@ -1,0 +1,17 @@
+{
+  "artifact": "i0",
+  "repository": "https://github.com/phairo-enterprises/ph.git",
+  "branch": "comma4-honda-clean-v1",
+  "verified_source_commit": "841ca86f818a8b1e1e3b0e491dc860f10dc11e61",
+  "verified_source_tree": "bec7bd69c393e47111b618a8c6281e2497ce59ad",
+  "source_i1_git_blob": "7dee3a6c59e12048338f7335654d965cfa97eaaa",
+  "architecture": "AArch64 ELF64 little-endian",
+  "bytes": 1270680,
+  "sha256": "fd4c3c4d0c0873c4247b0c0d3b97f9e16e018c3a52551bce8fdd30944328b9d5",
+  "preserved_installers": {
+    "i1": "d7227dca44afd07f53990f645fd7458797ce703e191ae2ee9067e183598580f5",
+    "i2": "cd330b5f792352977c5ba04e6e94b05b9043475e6189160965581cd5be2eab43",
+    "i3": "2f0f93b7eb4779e38f3a3e8b20e34fed902460e19407ea4f3cb2e40fc96fa916"
+  },
+  "limitation": "Publication-time source check; branch remains mutable. Device installation and boot not tested."
+}
