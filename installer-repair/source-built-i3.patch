@@ -1,0 +1,63 @@
+--- a/SConstruct
++++ b/SConstruct
+@@ -20,6 +20,8 @@
+ 
+ AddOption('--ccflags', action='store', type='string', default='', help='pass arbitrary flags over the command line')
+ AddOption('--verbose', action='store_true', default=False, help='show full build commands')
++AddOption('--comma-installer-i3', dest='comma_installer_i3', action='store_true', default=False,
++          help='build only the source-based phairo i3 installer target on AGNOS ARM64')
+ release = not os.path.exists(File('#.gitattributes').abspath) # file absent on release branch, see release_files.py
+ AddOption('--minimal',
+           action='store_false',
+@@ -54,6 +56,8 @@
+   "x86_64",       # linux pc x64
+   "Darwin",       # macOS arm64 (x86 not supported)
+ ]
++if GetOption("comma_installer_i3") and arch != "comma_arm64":
++  raise SCons.Errors.UserError("This target requires an AGNOS-compatible ARM64 build environment and target libraries; the current host does not provide them.")
+ 
+ pkg_names = ['acados', 'capnproto', 'eigen', 'ffmpeg', 'json11', 'ncurses', 'zeromq', 'zstd']
+ pkgs = [importlib.import_module(name) for name in pkg_names]
+--- a/openpilot/selfdrive/ui/SConscript
++++ b/openpilot/selfdrive/ui/SConscript
+@@ -3,7 +3,7 @@
+ 
+ Import('env', 'arch', 'common')
+ 
+-if GetOption('extras') and arch == "comma_arm64":
++if (GetOption('extras') or GetOption('comma_installer_i3')) and arch == "comma_arm64":
+   # build installers
+   raylib_dir = Path(importlib.util.find_spec("raylib").submodule_search_locations[0]) / "install"
+   raylib_env = env.Clone()
+@@ -20,6 +20,8 @@
+     ("openpilot_nightly", "nightly"),
+     ("openpilot_internal", "nightly-dev"),
+   ]
++  if GetOption("comma_installer_i3"):
++    installers = [("phairo_i3", "comma4-accord26-all-v2")]
+ 
+   cont = raylib_env.Command("installer/continue_openpilot.o", "installer/continue_openpilot.sh",
+                             "ld -r -b binary -o $TARGET $SOURCE")
+@@ -31,6 +33,8 @@
+                               "ld -r -b binary -o $TARGET $SOURCE")
+   for name, branch in installers:
+     d = {'BRANCH': f"'\"{branch}\"'"}
++    if GetOption("comma_installer_i3"):
++      d["INSTALLER_GIT_URL"] = '\'"https://github.com/phairo-enterprises/ph.git"\''
+     if "internal" in name:
+       d['INTERNAL'] = "1"
+ 
+--- a/openpilot/selfdrive/ui/installer/installer.cc
++++ b/openpilot/selfdrive/ui/installer/installer.cc
+@@ -19,7 +19,10 @@
+ }
+ 
+ // Leave some extra space for the fork installer
+-const std::string GIT_URL = get_str("https://github.com/commaai/openpilot.git" "?                                                                ");
++#ifndef INSTALLER_GIT_URL
++#define INSTALLER_GIT_URL "https://github.com/commaai/openpilot.git"
++#endif
++const std::string GIT_URL = get_str(INSTALLER_GIT_URL "?                                                                ");
+ const std::string BRANCH_STR = get_str(BRANCH "?                                                                ");
+ 
+ #define GIT_SSH_URL "git@github.com:commaai/openpilot.git"

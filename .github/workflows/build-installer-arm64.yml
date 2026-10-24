@@ -1,0 +1,153 @@
+# DRAFT ONLY. Not added to GitHub, triggered, or validated on an ARM64 runner.
+# Approval must cover publishing this workflow/input patch and running this artifact-only job.
+name: Build source-based Comma i3 installer (artifact only)
+"on":
+  push:
+    branches:
+      - comma4-installer-source-repair-ci-v1
+    paths:
+      - .github/workflows/build-installer-arm64.yml
+      - installer-repair/source-built-i3.patch
+      - installer-repair/verify_installer_static.py
+permissions:
+  contents: read
+jobs:
+  installer:
+    # The dedicated branch/path trigger isolates the task. Repairs/retries remain
+    # limited by the separately approved artifact-only build scope.
+    if: github.repository == 'phairo-enterprises/ph'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repair-input
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: phairo-enterprises/ph
+          ref: f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66
+          path: source
+          submodules: recursive
+          lfs: false
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: commaai/agnos-builder
+          ref: a0ec3fe3a6159742e45d569d96dd59c768d15fac
+          path: agnos
+          submodules: recursive
+          lfs: true
+          persist-credentials: false
+      - name: Verify native runner and apply reviewed source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in aarch64|arm64) ;; *) echo 'Native ARM64 runner required for this draft'; exit 1;; esac
+          test "$(git -C repair-input rev-parse HEAD)" = "$GITHUB_SHA"
+          docker version
+          docker buildx version
+          test "$(git -C source rev-parse HEAD)" = f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66
+          test "$(git -C agnos rev-parse HEAD)" = a0ec3fe3a6159742e45d569d96dd59c768d15fac
+          test -f repair-input/installer-repair/source-built-i3.patch
+          echo "636a1ecea92007079b776ebed0a475678814c091b2fafd34758d4a9ba42a5bcb  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
+          git -C source apply --check "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
+          git -C source apply "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
+          git -C source diff --check
+          git -C source lfs pull --exclude=openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx
+      - name: Build official AGNOS kernel headers and build-image context
+        working-directory: agnos
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Official native-ARM script; its kernel output is never flashed or uploaded.
+          ./build_kernel.sh
+          test -d output/linux-headers/include
+      - name: Build official AGNOS 19.7 ARM64 container, without system-image export
+        working-directory: agnos
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=ubuntu-base-24.04.3-base-arm64.tar.gz
+          curl --fail --location --retry 3 \
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/$base" -o "$base"
+          echo "7b2dced6dd56ad5e4a813fa25c8de307b655fdabc6ea9213175a92c48dabb048  $base" | sha256sum --check
+          docker buildx build --platform linux/arm64 --load \
+            --build-arg "UBUNTU_BASE_IMAGE=$base" \
+            -f Dockerfile.agnos -t comma-i3-build:local .
+      - name: Compile installer only, never execute it
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+            -e HOME=/tmp/installer-build-home \
+            -e PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+            -e UV_CACHE_DIR=/tmp/installer-uv-cache \
+            -e UV_PROJECT_ENVIRONMENT=/src/.venv \
+            -e UV_PYTHON_INSTALL_DIR=/tmp/installer-build-home/.local/share/uv/python \
+            -e UV_LINK_MODE=copy \
+            -v "$GITHUB_WORKSPACE/source:/src" -w /src \
+            --entrypoint /bin/bash comma-i3-build:local -c '
+              set -euo pipefail
+              mkdir -p "$HOME"
+              test "$(uname -m)" = aarch64
+              test -f /AGNOS
+              test "$(cat /VERSION)" = 19.7
+              test -w "$HOME"
+              test -w /src
+              command -v clang
+              command -v clang++
+              command -v uv
+              clang --version
+              uv --version
+              {
+                printf "BUILD_IMAGE_VERSION="; cat /VERSION
+                cat /etc/os-release
+                getconf GNU_LIBC_VERSION
+                clang --version
+                uv --version
+              } > /src/installer-build-environment.txt
+              uv sync --frozen --all-extras
+              export PATH="/src/.venv/bin:$PATH"
+              command -v capnpc
+              command -v python3
+              .venv/bin/scons --minimal --comma-installer-i3 -j2 \
+                cache_dir=/tmp/installer-scons-cache \
+                openpilot/selfdrive/ui/installer/installers/installer_phairo_i3
+            '
+      - name: Static artifact checks and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          file=source/openpilot/selfdrive/ui/installer/installers/installer_phairo_i3
+          test -f "$file"
+          readelf -h "$file" | tee artifacts/elf-header.txt
+          readelf -d "$file" > artifacts/elf-dynamic.txt
+          readelf -l "$file" > artifacts/elf-program-headers.txt
+          readelf --version-info --wide "$file" > artifacts/elf-symbol-versions.txt
+          cp source/installer-build-environment.txt artifacts/
+          readelf -h "$file" | grep -q 'Machine:.*AArch64'
+          python3 repair-input/installer-repair/verify_installer_static.py "$file"
+          cp "$file" artifacts/installer_phairo_i3.EXPERIMENTAL
+          chmod 0644 artifacts/installer_phairo_i3.EXPERIMENTAL
+          sha256sum artifacts/installer_phairo_i3.EXPERIMENTAL > artifacts/SHA256SUMS
+          printf '%s\n' \
+            'WORKFLOW_BASE=fea84cfc140e389da9c049861cd90549d908a8b6' \
+            'SOURCE=f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66' \
+            'AGNOS_BUILDER=a0ec3fe3a6159742e45d569d96dd59c768d15fac' \
+            'REPOSITORY=https://github.com/phairo-enterprises/ph.git' \
+            'BRANCH=comma4-accord26-all-v2' \
+            'EXPECTED_SOURCE_AGNOS=19.7' \
+            'BUILD_IMAGE_AGNOS=19.7' \
+            'DEVICE_AGNOS=UNKNOWN' \
+            'ABI_NOT_VERIFIED' \
+            'NOT_EXECUTED_OR_DEVICE_TESTED; NOT_PUBLISHED_TO_INSTALLER_URL' > artifacts/BUILD-MANIFEST.txt
+          git -C source diff --stat >> artifacts/BUILD-MANIFEST.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: comma-i3-installer-native-arm64-UNTESTED
+          path: artifacts/
+          retention-days: 7
+          if-no-files-found: error
