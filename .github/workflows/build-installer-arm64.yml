@@ -49,7 +49,7 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66
           test "$(git -C agnos rev-parse HEAD)" = a0ec3fe3a6159742e45d569d96dd59c768d15fac
           test -f repair-input/installer-repair/source-built-i3.patch
-          echo "2b23cc0b00bc19e43fb9bc54e000498aad3fe3c27e736bc23d8f62b36d4511e8  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
+          echo "7b20b65717a477d44f187651a38f09d839ce1a32e4c001868216beef718a4fc7  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
           git -C source apply --check "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
           git -C source apply "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
           git -C source diff --check
@@ -62,7 +62,7 @@ jobs:
           # Official native-ARM script; its kernel output is never flashed or uploaded.
           ./build_kernel.sh
           test -d output/linux-headers/include
-      - name: Build official AGNOS 19.7 ARM64 container, without system-image export
+      - name: Build installer inside AGNOS 19.7 and export only installer/report files
         working-directory: agnos
         shell: bash
         run: |
@@ -71,64 +71,67 @@ jobs:
           curl --fail --location --retry 3 \
             "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/$base" -o "$base"
           echo "7b2dced6dd56ad5e4a813fa25c8de307b655fdabc6ea9213175a92c48dabb048  $base" | sha256sum --check
-          docker buildx build --platform linux/arm64 --load \
-            --build-arg "UBUNTU_BASE_IMAGE=$base" \
-            -f Dockerfile.agnos -t comma-i3-build:local .
-      - name: Compile installer only, never execute it
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --rm --user "$(id -u):$(id -g)" \
-            --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
-            -e HOME=/src/.installer-build-home \
-            -e PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
-            -e UV_CACHE_DIR=/src/.installer-uv-cache \
-            -e UV_PROJECT_ENVIRONMENT=/src/.venv \
-            -e UV_PYTHON_INSTALL_DIR=/src/.installer-build-home/.local/share/uv/python \
-            -e UV_LINK_MODE=copy \
-            -e TMPDIR=/src/.installer-build-tmp \
-            -v "$GITHUB_WORKSPACE/source:/src" -w /src \
-            --entrypoint /bin/bash comma-i3-build:local -c '
-              set -euo pipefail
-              mkdir -p "$HOME" "$TMPDIR"
-              grep -E " /tmp | /src " /proc/mounts || true
-              test "$(uname -m)" = aarch64
-              test -f /AGNOS
-              test "$(cat /VERSION)" = 19.7
-              test -w "$HOME"
-              test -w /src
-              command -v clang
-              command -v clang++
-              command -v uv
-              clang --version
-              uv --version
-              {
-                printf "BUILD_IMAGE_VERSION="; cat /VERSION
-                cat /etc/os-release
-                getconf GNU_LIBC_VERSION
-                clang --version
-                uv --version
-              } > /src/installer-build-environment.txt
-              uv sync --frozen --all-extras
-              export PATH="/src/.venv/bin:$PATH"
-              command -v capnpc
-              command -v python3
+          python3 - <<'PY_DOCKER'
+          from pathlib import Path
+          original = Path("Dockerfile.agnos").read_text()
+          anchor = "\nFROM agnos-base\n"
+          assert original.count(anchor) == 1, "Unexpected official final-stage layout"
+          Path("Dockerfile.installer").write_text(original.replace(anchor, "\nFROM agnos-base AS installer-agnos-base\n"))
+          PY_DOCKER
+          cat >> Dockerfile.installer <<'DOCKERFILE_INSTALLER'
+
+          # Compile in the official AGNOS stage; export only the two selected output files.
+          FROM installer-agnos-base AS installer-build
+          RUN install -d -o comma -g comma /src
+          COPY --from=installer-source --chown=comma:comma / /src/
+          WORKDIR /src
+          USER comma:comma
+          ENV HOME=/src/.installer-build-home \
+              PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+              UV_CACHE_DIR=/src/.installer-uv-cache \
+              UV_PROJECT_ENVIRONMENT=/src/.venv \
+              UV_PYTHON_INSTALL_DIR=/src/.installer-build-home/.local/share/uv/python \
+              UV_LINK_MODE=copy \
+              TMPDIR=/src/.installer-build-tmp
+          SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+          RUN set -eu; \
+              test "$(id -un)" = comma; test "$(id -u)" != 0; \
+              mkdir -p "$HOME" "$TMPDIR"; \
+              test "$(uname -m)" = aarch64; test -f /AGNOS; \
+              test "$(cat /VERSION)" = 19.7; test -w "$HOME"; test -w /src; \
+              command -v clang; command -v clang++; command -v uv; \
+              { printf "BUILD_IMAGE_VERSION="; cat /VERSION; cat /etc/os-release; \
+                getconf GNU_LIBC_VERSION; clang --version; uv --version; id; \
+              } > /src/installer-build-environment.txt; \
+              uv sync --frozen --all-extras; \
+              export PATH="/src/.venv/bin:$PATH"; \
+              command -v capnpc; command -v python3; \
               .venv/bin/scons --minimal --comma-installer-i3 -j2 \
                 cache_dir=/src/.installer-scons-cache \
                 openpilot/selfdrive/ui/installer/installers/installer_phairo_i3
-            '
+
+          FROM scratch AS installer-artifact
+          COPY --from=installer-build /src/openpilot/selfdrive/ui/installer/installers/installer_phairo_i3 /installer_phairo_i3
+          COPY --from=installer-build /src/installer-build-environment.txt /installer-build-environment.txt
+          DOCKERFILE_INSTALLER
+          # Normal BuildKit sandbox. No privileged flags, image load/export, or installer execution.
+          docker buildx build --platform linux/arm64 --target installer-artifact \
+            --build-arg "UBUNTU_BASE_IMAGE=$base" \
+            --build-context "installer-source=$GITHUB_WORKSPACE/source" \
+            --output "type=local,dest=$GITHUB_WORKSPACE/installer-output,platform-split=false" \
+            -f Dockerfile.installer .
       - name: Static artifact checks and manifest
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          file=source/openpilot/selfdrive/ui/installer/installers/installer_phairo_i3
+          file=installer-output/installer_phairo_i3
           test -f "$file"
           readelf -h "$file" | tee artifacts/elf-header.txt
           readelf -d "$file" > artifacts/elf-dynamic.txt
           readelf -l "$file" > artifacts/elf-program-headers.txt
           readelf --version-info --wide "$file" > artifacts/elf-symbol-versions.txt
-          cp source/installer-build-environment.txt artifacts/
+          cp installer-output/installer-build-environment.txt artifacts/
           readelf -h "$file" | grep -q 'Machine:.*AArch64'
           python3 repair-input/installer-repair/verify_installer_static.py "$file"
           cp "$file" artifacts/installer_phairo_i3.EXPERIMENTAL

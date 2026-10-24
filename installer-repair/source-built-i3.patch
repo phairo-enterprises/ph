@@ -18,7 +18,17 @@
  
  pkg_names = ['acados', 'capnproto', 'eigen', 'ffmpeg', 'json11', 'ncurses', 'zeromq', 'zstd']
  pkgs = [importlib.import_module(name) for name in pkg_names]
-@@ -270,38 +274,42 @@
+@@ -167,6 +171,9 @@
+   tools=["default", "cython", "compilation_db", "rednose_filter"],
+   toolpath=["#msgq_repo/site_scons/site_tools", "#rednose_repo/site_scons/site_tools"],
+ )
++if GetOption("comma_installer_i3") and "TMPDIR" in os.environ:
++  # Keep installer compiler temporaries in the explicitly selected build workspace.
++  env["ENV"]["TMPDIR"] = os.environ["TMPDIR"]
+ # SCons' Darwin linker tool doesn't define the variables used to expand RPATH.
+ if arch == "Darwin":
+   env["RPATHPREFIX"] = "-Wl,-rpath,"
+@@ -270,38 +277,42 @@
  Export('messaging')
  
  
