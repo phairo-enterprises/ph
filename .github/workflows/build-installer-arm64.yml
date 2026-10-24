@@ -49,7 +49,7 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66
           test "$(git -C agnos rev-parse HEAD)" = a0ec3fe3a6159742e45d569d96dd59c768d15fac
           test -f repair-input/installer-repair/source-built-i3.patch
-          echo "7b20b65717a477d44f187651a38f09d839ce1a32e4c001868216beef718a4fc7  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
+          echo "b98233bfc57dbcafb76a49d01e627121998808a49d651a0b91f26971090c6524  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
           git -C source apply --check "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
           git -C source apply "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
           git -C source diff --check
