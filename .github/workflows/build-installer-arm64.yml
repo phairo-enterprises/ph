@@ -1,9 +1,9 @@
 # Isolated artifact-only CI. The installer output is not executed or deployed.
-name: Build source-based Comma i3 installer (artifact only)
+name: Build diagnostic Comma installer (artifact only)
 "on":
   push:
     branches:
-      - comma4-installer-source-repair-ci-v1
+      - comma4-installer-diagnostics-ci-v1
     paths:
       - .github/workflows/build-installer-arm64.yml
       - installer-repair/source-built-i3.patch
@@ -49,10 +49,12 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66
           test "$(git -C agnos rev-parse HEAD)" = a0ec3fe3a6159742e45d569d96dd59c768d15fac
           test -f repair-input/installer-repair/source-built-i3.patch
-          echo "b98233bfc57dbcafb76a49d01e627121998808a49d651a0b91f26971090c6524  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
+          echo "ea5fe8c88c10fd3e330f1b6beb14a98ac00ed86bca863bafa8ac2982a655f237  repair-input/installer-repair/source-built-i3.patch" | sha256sum --check
           git -C source apply --check "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
           git -C source apply "$GITHUB_WORKSPACE/repair-input/installer-repair/source-built-i3.patch"
           git -C source diff --check
+          echo "e95f52f6bedd736b3fd11f7c4a0fb446f7eeb5bf3e788953a038c05fa10c7b69  source/openpilot/selfdrive/ui/installer/installer.cc" | sha256sum --check
+          echo "0a9858eff45de0e6b67e8ab420266128bdd8c1666e1160d9bf60aafe33b1c72d  source/openpilot/selfdrive/ui/installer/git_progress.h" | sha256sum --check
           git -C source lfs pull --exclude=openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx
       - name: Build official AGNOS kernel headers and build-image context
         working-directory: agnos
@@ -138,7 +140,9 @@ jobs:
           chmod 0644 artifacts/installer_phairo_i3.EXPERIMENTAL
           sha256sum artifacts/installer_phairo_i3.EXPERIMENTAL > artifacts/SHA256SUMS
           printf '%s\n' \
-            'WORKFLOW_BASE=fea84cfc140e389da9c049861cd90549d908a8b6' \
+            'WORKFLOW_BASE=8b5ce72d6a5804f2282120da2c2963524305f244' \
+            'DIAGNOSTIC_SOURCE_SHA256=e95f52f6bedd736b3fd11f7c4a0fb446f7eeb5bf3e788953a038c05fa10c7b69' \
+            'DIAGNOSTIC_HEADER_SHA256=0a9858eff45de0e6b67e8ab420266128bdd8c1666e1160d9bf60aafe33b1c72d' \
             'SOURCE=f66e80a4c58380aaa0252c9dd1c1f8cdaea5bb66' \
             'AGNOS_BUILDER=a0ec3fe3a6159742e45d569d96dd59c768d15fac' \
             'REPOSITORY=https://github.com/phairo-enterprises/ph.git' \
@@ -151,7 +155,7 @@ jobs:
           git -C source diff --stat >> artifacts/BUILD-MANIFEST.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: comma-i3-installer-native-arm64-UNTESTED
+          name: comma-diagnostic-installer-native-arm64-UNTESTED
           path: artifacts/
           retention-days: 7
           if-no-files-found: error
